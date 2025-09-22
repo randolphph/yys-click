@@ -1,9 +1,10 @@
 """Utility script for automating Onmyoji (阴阳师) battles with PyAutoGUI.
 
-The script watches for configured UI elements (png screenshots) on the
+The script watches for configured UI elements (PNG screenshots) on the
 screen, adds random delays and click offsets, and clicks the matching
-elements to simulate human behaviour. Edit `targets.json` to describe
-the UI elements you wish to automate.
+elements to simulate human behaviour. Screenshot-based template matching
+is performed with Pillow + OpenCV. Edit `targets.json` to describe the UI
+elements you wish to automate.
 
 Example usage::
 
@@ -18,20 +19,38 @@ import json
 import random
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 try:
     import pyautogui  # type: ignore
 except ImportError as exc:  # pragma: no cover - runtime safeguard
+    missing = getattr(exc, "name", "pyautogui")
     raise SystemExit(
-        "PyAutoGUI is required. Install it with 'pip install pyautogui opencv-python'."
+        "Missing dependency '{missing}'. Install it with 'pip install pyautogui pyscreeze pillow opencv-python'.".format(
+            missing=missing
+        )
     ) from exc
 
+try:
+    import numpy as np
+except ImportError as exc:  # pragma: no cover - runtime safeguard
+    raise SystemExit("NumPy is required. Install it with 'pip install numpy'.") from exc
+
+try:
+    import cv2  # type: ignore
+except ImportError as exc:  # pragma: no cover - runtime safeguard
+    raise SystemExit("OpenCV is required. Install it with 'pip install opencv-python'.") from exc
+
+try:
+    from PIL import ImageGrab
+except ImportError as exc:  # pragma: no cover - runtime safeguard
+    raise SystemExit("Pillow is required for screen capture. Install it with 'pip install pillow'.") from exc
 
 Region = Tuple[int, int, int, int]
 Range = Tuple[float, float]
+BoundingBox = Tuple[int, int, int, int]
 
 
 @dataclass
@@ -46,6 +65,13 @@ class Target:
     move_duration_range: Range = (0.3, 0.7)
     pre_click_delay_range: Range = (0.1, 0.4)
     post_click_delay_range: Range = (0.6, 1.2)
+
+    template: np.ndarray = field(init=False, repr=False)
+    template_height: int = field(init=False, repr=False)
+    template_width: int = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._load_template()
 
     @classmethod
     def from_mapping(cls, base_dir: Path, raw: dict) -> "Target":
@@ -80,6 +106,16 @@ class Target:
             ),
         )
         return target
+
+    def _load_template(self) -> None:
+        image_bgr = cv2.imread(str(self.image_path), cv2.IMREAD_COLOR)
+        if image_bgr is None:
+            raise ValueError(f"Failed to read image file: {self.image_path}")
+        template_gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+        if template_gray.size == 0:
+            raise ValueError(f"Template image is empty: {self.image_path}")
+        self.template = template_gray
+        self.template_height, self.template_width = template_gray.shape[:2]
 
 
 def _parse_region(value) -> Optional[Region]:
@@ -121,7 +157,39 @@ def load_targets(path: Path) -> List[Target]:
     return targets
 
 
-def random_point_within_region(box: Tuple[int, int, int, int], margin: int) -> Tuple[int, int]:
+def capture_screen(region: Optional[Region]) -> np.ndarray:
+    if region is None:
+        bbox = None
+    else:
+        left, top, width, height = region
+        bbox = (left, top, left + width, top + height)
+    screenshot = ImageGrab.grab(bbox=bbox)
+    frame = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2GRAY)
+    return frame
+
+
+def locate_target(target: Target, confidence: float) -> Optional[BoundingBox]:
+    search_image = capture_screen(target.search_region)
+    if (
+        search_image.shape[0] < target.template_height
+        or search_image.shape[1] < target.template_width
+    ):
+        return None
+
+    result = cv2.matchTemplate(search_image, target.template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+    if max_val < confidence:
+        return None
+
+    offset_x = target.search_region[0] if target.search_region else 0
+    offset_y = target.search_region[1] if target.search_region else 0
+    left = offset_x + int(max_loc[0])
+    top = offset_y + int(max_loc[1])
+    return left, top, target.template_width, target.template_height
+
+
+def random_point_within_region(box: BoundingBox, margin: int) -> Tuple[int, int]:
     left, top, width, height = box
     width = max(width, 1)
     height = max(height, 1)
@@ -139,7 +207,6 @@ def random_point_within_region(box: Tuple[int, int, int, int], margin: int) -> T
     if min_y >= max_y:
         min_y, max_y = top, top + height
 
-    # randint expects integers and includes endpoints.
     return random.randint(int(min_x), int(max_x)), random.randint(int(min_y), int(max_y))
 
 
@@ -147,7 +214,7 @@ def choose_random(range_pair: Range) -> float:
     return random.uniform(*range_pair)
 
 
-def perform_click(target: Target, box: Tuple[int, int, int, int]) -> None:
+def perform_click(target: Target, box: BoundingBox) -> None:
     x, y = random_point_within_region(box, target.click_margin)
 
     move_duration = choose_random(target.move_duration_range)
@@ -166,15 +233,11 @@ def run(targets: Sequence[Target], scan_interval: Range, confidence_override: Op
     try:
         while True:
             for target in targets:
-                box = pyautogui.locateOnScreen(
-                    str(target.image_path),
-                    confidence=confidence_override or target.confidence,
-                    region=target.search_region,
-                )
+                threshold = confidence_override or target.confidence
+                box = locate_target(target, threshold)
                 if box:
-                    normalized_box = (box.left, box.top, box.width, box.height)
-                    print(f"[+] Detected '{target.name}' at {normalized_box} -> clicking")
-                    perform_click(target, normalized_box)
+                    print(f"[+] Detected '{target.name}' at {box} (score >= {threshold}) -> clicking")
+                    perform_click(target, box)
                     break
             else:
                 idle_delay = choose_random(scan_interval)

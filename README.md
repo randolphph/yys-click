@@ -6,7 +6,7 @@
 
 1. 安装依赖（建议使用虚拟环境）：
    ```bash
-   pip install pyautogui opencv-python
+   pip install pyautogui pyscreeze pillow opencv-python
    ```
 2. 在 `images/` 目录中存放截图素材（可以根据实际情况调整路径）。
 3. 根据自己的需求复制并修改配置文件：
@@ -34,5 +34,12 @@ python yys_clicker.py --targets targets.json
 ## 常见提示
 
 - 如果提示找不到图像文件，请确认配置中的路径与文件名。
-- `PyAutoGUI.locateOnScreen` 使用 `confidence` 参数时需要安装 `opencv-python`。
+- 依赖 Pillow + OpenCV 进行截图和模板匹配；`opencv-python` 会顺带安装 `numpy`。
 - 建议在低分辨率窗口或固定位置运行游戏，以提高识别成功率。
+## 识别原理
+
+- 每次循环会用 Pillow 的 `ImageGrab.grab` 截取全屏或配置的 `region` 区域。
+- OpenCV (`cv2.matchTemplate`) 在截屏中搜索配置模板，取匹配度最高的位置并与 `confidence` 比较。
+- 匹配成功后随机选取该区域内的坐标，加入移动、点击前后延迟，触发按键动作。
+- 如果匹配失败，脚本会按 `--scan-interval` 设置的随机时间重新截图继续检测。
+
