@@ -1,0 +1,20 @@
+[
+  {
+    "name": "battle_ready",
+    "image": "images/battle_ready.png",
+    "confidence": 0.88,
+    "click_margin": 10,
+    "move_duration_range": [0.4, 0.9],
+    "pre_click_delay_range": [0.2, 0.5],
+    "post_click_delay_range": [1.0, 1.6]
+  },
+  {
+    "name": "victory_confirm",
+    "image": "images/victory_confirm.png",
+    "confidence": 0.9,
+    "click_margin": 12,
+    "move_duration_range": [0.35, 0.8],
+    "pre_click_delay_range": [0.15, 0.4],
+    "post_click_delay_range": [0.8, 1.4]
+  }
+]
