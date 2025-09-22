@@ -9,6 +9,7 @@
    pip install -r requirements.txt
    ```
 2. 在 `images/` 目录中存放截图素材（可以根据实际情况调整路径）。
+一般放两张，一张开始挑战challenge_ready.png，一张结束victory_confirm.png
 3. 根据自己的需求复制并修改配置文件：
    ```bash
    cp targets.example.json targets.json
