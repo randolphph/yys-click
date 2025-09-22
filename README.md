@@ -6,7 +6,7 @@
 
 1. 安装依赖（建议使用虚拟环境）：
    ```bash
-   pip install pyautogui pyscreeze pillow opencv-python
+   pip install -r requirements.txt
    ```
 2. 在 `images/` 目录中存放截图素材（可以根据实际情况调整路径）。
 3. 根据自己的需求复制并修改配置文件：
@@ -34,7 +34,7 @@ python yys_clicker.py --targets targets.json
 ## 常见提示
 
 - 如果提示找不到图像文件，请确认配置中的路径与文件名。
-- 依赖 Pillow + OpenCV 进行截图和模板匹配；`opencv-python` 会顺带安装 `numpy`。
+- 依赖 Pillow + OpenCV 进行截图和模板匹配；所有必需库已列在 `requirements.txt`。
 - 建议在低分辨率窗口或固定位置运行游戏，以提高识别成功率。
 ## 识别原理
 
